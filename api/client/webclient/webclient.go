@@ -38,13 +38,22 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+type Config struct {
+	Context       context.Context
+	ProxyAddr     string
+	Insecure      bool
+	Pool          *x509.CertPool
+	ConnectorName string
+	ExtraHeaders  map[string]string
+}
+
 // newWebClient creates a new client to the HTTPS web proxy.
-func newWebClient(insecure bool, pool *x509.CertPool) *http.Client {
+func newWebClient(cfg *Config) *http.Client {
 	return &http.Client{
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{
-				RootCAs:            pool,
-				InsecureSkipVerify: insecure,
+				RootCAs:            cfg.Pool,
+				InsecureSkipVerify: cfg.Insecure,
 			},
 		},
 	}
@@ -56,9 +65,13 @@ func newWebClient(insecure bool, pool *x509.CertPool) *http.Client {
 //  * The target host must resolve to the loopback address.
 // If these conditions are not met, then the plain-HTTP fallback is not allowed,
 // and a the HTTPS failure will be considered final.
-func doWithFallback(clt *http.Client, allowPlainHTTP bool, req *http.Request) (*http.Response, error) {
+func doWithFallback(clt *http.Client, allowPlainHTTP bool, extraHeaders map[string]string, req *http.Request) (*http.Response, error) {
 	// first try https and see how that goes
 	req.URL.Scheme = "https"
+	for k, v := range extraHeaders {
+		req.Header.Add(k, v)
+	}
+
 	log.Debugf("Attempting %s %s%s", req.Method, req.URL.Host, req.URL.Path)
 	resp, err := clt.Do(req)
 
@@ -88,18 +101,18 @@ func doWithFallback(clt *http.Client, allowPlainHTTP bool, req *http.Request) (*
 
 // Find fetches discovery data by connecting to the given web proxy address.
 // It is designed to fetch proxy public addresses without any inefficiencies.
-func Find(ctx context.Context, proxyAddr string, insecure bool, pool *x509.CertPool) (*PingResponse, error) {
-	clt := newWebClient(insecure, pool)
+func Find(cfg *Config) (*PingResponse, error) {
+	clt := newWebClient(cfg)
 	defer clt.CloseIdleConnections()
 
-	endpoint := fmt.Sprintf("https://%s/webapi/find", proxyAddr)
+	endpoint := fmt.Sprintf("https://%s/webapi/find", cfg.ProxyAddr)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	req, err := http.NewRequestWithContext(cfg.Context, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
 
-	resp, err := doWithFallback(clt, insecure, req)
+	resp, err := doWithFallback(clt, cfg.Insecure, cfg.ExtraHeaders, req)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
@@ -118,21 +131,21 @@ func Find(ctx context.Context, proxyAddr string, insecure bool, pool *x509.CertP
 // errors before being asked for passwords. The second is to return the form
 // of authentication that the server supports. This also leads to better user
 // experience: users only get prompted for the type of authentication the server supports.
-func Ping(ctx context.Context, proxyAddr string, insecure bool, pool *x509.CertPool, connectorName string) (*PingResponse, error) {
-	clt := newWebClient(insecure, pool)
+func Ping(cfg *Config) (*PingResponse, error) {
+	clt := newWebClient(cfg)
 	defer clt.CloseIdleConnections()
 
-	endpoint := fmt.Sprintf("https://%s/webapi/ping", proxyAddr)
-	if connectorName != "" {
-		endpoint = fmt.Sprintf("%s/%s", endpoint, connectorName)
+	endpoint := fmt.Sprintf("https://%s/webapi/ping", cfg.ProxyAddr)
+	if cfg.ConnectorName != "" {
+		endpoint = fmt.Sprintf("%s/%s", endpoint, cfg.ConnectorName)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	req, err := http.NewRequestWithContext(cfg.Context, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
 
-	resp, err := doWithFallback(clt, insecure, req)
+	resp, err := doWithFallback(clt, cfg.Insecure, cfg.ExtraHeaders, req)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
@@ -147,32 +160,32 @@ func Ping(ctx context.Context, proxyAddr string, insecure bool, pool *x509.CertP
 }
 
 // GetTunnelAddr returns the tunnel address either set in an environment variable or retrieved from the web proxy.
-func GetTunnelAddr(ctx context.Context, proxyAddr string, insecure bool, pool *x509.CertPool) (string, error) {
+func GetTunnelAddr(cfg *Config) (string, error) {
 	// If TELEPORT_TUNNEL_PUBLIC_ADDR is set, nothing else has to be done, return it.
 	if tunnelAddr := os.Getenv(defaults.TunnelPublicAddrEnvar); tunnelAddr != "" {
 		return extractHostPort(tunnelAddr)
 	}
 
 	// Ping web proxy to retrieve tunnel proxy address.
-	pr, err := Find(ctx, proxyAddr, insecure, nil)
+	pr, err := Find(cfg)
 	if err != nil {
 		return "", trace.Wrap(err)
 	}
-	return tunnelAddr(proxyAddr, pr.Proxy)
+	return tunnelAddr(cfg.ProxyAddr, pr.Proxy)
 }
 
-func GetMOTD(ctx context.Context, proxyAddr string, insecure bool, pool *x509.CertPool) (*MotD, error) {
-	clt := newWebClient(insecure, pool)
+func GetMOTD(cfg *Config) (*MotD, error) {
+	clt := newWebClient(cfg)
 	defer clt.CloseIdleConnections()
 
-	endpoint := fmt.Sprintf("https://%s/webapi/motd", proxyAddr)
+	endpoint := fmt.Sprintf("https://%s/webapi/motd", cfg.ProxyAddr)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	req, err := http.NewRequestWithContext(cfg.Context, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
 
-	resp, err := clt.Do(req)
+	resp, err := doWithFallback(clt, cfg.Insecure, cfg.ExtraHeaders, req)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
