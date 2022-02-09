@@ -18,15 +18,7 @@ Download the latest version of Teleport for your platform from our
 installation [instructions](../../installation.mdx).
 
 <Details opened={false} title="Using Application Access?">
-Teleport assigns a
-subdomain to each application you have configured for Application Access (e.g.,
-`grafana.teleport.example.com`), so you will also need to create a DNS A record
-with a wildcard subdomain (e.g., `*.tele.example.com`).
-
-This way, Let's Encrypt can issue a wildcard certificate, enabling clients to
-verify your Teleport hosts regardless of the application they are accessing.
-
-[Learn more about Teleport Application Access](../../application-access/getting-started.mdx)
+(!docs/pages/includes/dns-app-access.mdx!)
 </Details>
 
 Generate a Teleport configuration file with ACME enabled:
