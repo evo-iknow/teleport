@@ -139,7 +139,7 @@ to create a public IP for Teleport.
   </TabItem>
 </Tabs>
 
-You will also need to create a DNS A record for `tele.example.com` so clients can verify the TLS certificate of your Teleport hosts.
+You will also need to create a DNS A record for `tele.example.com` so clients can verify the TLS certificate of your Teleport hosts. Adjust the following commands for your environment.
 
 <Details title="Using Application Access?">
 (!docs/pages/includes/dns-app-access.mdx!)
@@ -153,6 +153,7 @@ You will also need to create a DNS A record for `tele.example.com` so clients ca
 
     $ gcloud dns record-sets transaction start --zone="${MYZONE?}"
     $ gcloud dns record-sets transaction add ${MYIP?} --name="${MYDNS?}" --ttl="30" --type="A" --zone="${MYZONE?}"
+    $ gcloud dns record-sets transaction add ${MYIP?} --name="*.${MYDNS?}" --ttl="30" --type="A" --zone="${MYZONE?}"
     $ gcloud dns record-sets transaction describe --zone="${MYZONE?}"
     $ gcloud dns record-sets transaction execute --zone="${MYZONE?}"
     ```
