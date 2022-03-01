@@ -143,7 +143,7 @@ func NewWithConfig(ctx context.Context, cfg Config) (*Backend, error) {
 			return nil, trace.ConvertSystemError(err)
 		}
 		fullPath := filepath.Join(cfg.Path, defaultDBFile)
-		connectorURL = fmt.Sprintf("file:%v?_busy_timeout=%v&_sync=%v", fullPath, cfg.BusyTimeout, cfg.Sync)
+		connectorURL = fmt.Sprintf("file:%v?_busy_timeout=%v&_sync=%v&_txlock=immediate", fullPath, cfg.BusyTimeout, cfg.Sync)
 	} else {
 		connectorURL = fmt.Sprintf("file:%v?mode=memory", cfg.MemoryName)
 	}
