@@ -1040,7 +1040,7 @@ func (a *ServerWithRoles) listResourcesWithSort(ctx context.Context, req proto.L
 			return nil, trace.Wrap(err)
 		}
 		resources = servers.AsResources()
-	
+
 	case types.KindKubernetesCluster:
 		kubeservices, err := a.GetKubeServices(ctx)
 		if err != nil {
@@ -1064,7 +1064,6 @@ func (a *ServerWithRoles) listResourcesWithSort(ctx context.Context, req proto.L
 			return nil, trace.Wrap(err)
 		}
 		resources = sortedClusters.AsResources()
-
 
 	default:
 		return nil, trace.NotImplemented("resource type %q is not supported for listResourcesWithSort", req.ResourceType)
