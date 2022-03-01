@@ -1426,6 +1426,9 @@ message PaginatedResource {
         types.ServerV2 Node = 3 [ (gogoproto.jsontag) = "node,omitempty" ];
         // KubeService represents a KubernetesService resource.
         types.ServerV2 KubeService = 4 [ (gogoproto.jsontag) = "kube_service,omitempty" ];
+        // KubeCluster represents a KubeCluster resource.
+        types.KubernetesClusterV3 KubeCluster = 5
+            [ (gogoproto.jsontag) = "kube_cluster,omitempty" ];
     }
 }
 
