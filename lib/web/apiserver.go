@@ -807,33 +807,40 @@ func (h *Handler) pingWithConnector(w http.ResponseWriter, r *http.Request, p ht
 		ServerVersion: teleport.Version,
 	}
 
+	var as webclient.AuthenticationSettings
+	var authPresent bool
 	if connectorName == constants.Local {
-		as, err := localSettings(cap)
+		as, err = localSettings(cap)
 		if err != nil {
 			return nil, trace.Wrap(err)
 		}
-		response.Auth = as
-		return response, nil
+		authPresent = true
 	}
 
 	// first look for a oidc connector with that name
 	oidcConnector, err := authClient.GetOIDCConnector(r.Context(), connectorName, false)
-	if err == nil {
-		response.Auth = oidcSettings(oidcConnector, cap)
-		return response, nil
+	if !authPresent && err == nil {
+		as = oidcSettings(oidcConnector, cap)
+		authPresent = true
 	}
 
 	// if no oidc connector was found, look for a saml connector
 	samlConnector, err := authClient.GetSAMLConnector(r.Context(), connectorName, false)
-	if err == nil {
-		response.Auth = samlSettings(samlConnector, cap)
-		return response, nil
+	if !authPresent && err == nil {
+		as = samlSettings(samlConnector, cap)
+		authPresent = true
 	}
 
 	// look for github connector
 	githubConnector, err := authClient.GetGithubConnector(r.Context(), connectorName, false)
-	if err == nil {
-		response.Auth = githubSettings(githubConnector, cap)
+	if !authPresent && err == nil {
+		as = githubSettings(githubConnector, cap)
+		authPresent = true
+	}
+
+	if authPresent {
+		as.HasMessageOfTheDay = cap.GetMessageOfTheDay() != ""
+		response.Auth = as
 		return response, nil
 	}
 

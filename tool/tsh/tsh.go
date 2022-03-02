@@ -864,6 +864,10 @@ func onLogin(cf *CLIConf) error {
 				return trace.Wrap(err)
 			}
 			printProfiles(cf.Debug, profile, profiles)
+			_, err := tc.PingAndShowMOTD(cf.Context)
+			if err != nil {
+				return trace.Wrap(err)
+			}
 			return nil
 		// in case if parameters match, re-fetch kube clusters and print
 		// current status
@@ -872,6 +876,10 @@ func onLogin(cf *CLIConf) error {
 				return trace.Wrap(err)
 			}
 			printProfiles(cf.Debug, profile, profiles)
+			_, err := tc.PingAndShowMOTD(cf.Context)
+			if err != nil {
+				return trace.Wrap(err)
+			}
 			return nil
 		// proxy is unspecified or the same as the currently provided proxy,
 		// but cluster is specified, treat this as selecting a new cluster
@@ -891,6 +899,10 @@ func onLogin(cf *CLIConf) error {
 			if err := updateKubeConfig(cf, tc, ""); err != nil {
 				return trace.Wrap(err)
 			}
+			_, err := tc.PingAndShowMOTD(cf.Context)
+			if err != nil {
+				return trace.Wrap(err)
+			}
 			return trace.Wrap(onStatus(cf))
 		// proxy is unspecified or the same as the currently provided proxy,
 		// but desired roles or request ID is specified, treat this as a
@@ -900,6 +912,10 @@ func onLogin(cf *CLIConf) error {
 				return trace.Wrap(err)
 			}
 			if err := updateKubeConfig(cf, tc, ""); err != nil {
+				return trace.Wrap(err)
+			}
+			_, err := tc.PingAndShowMOTD(cf.Context)
+			if err != nil {
 				return trace.Wrap(err)
 			}
 			return trace.Wrap(onStatus(cf))
