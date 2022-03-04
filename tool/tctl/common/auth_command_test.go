@@ -192,7 +192,7 @@ func TestAuthSignKubeconfig(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.desc, func(t *testing.T) {
 			// Generate kubeconfig.
-			if err = tt.ac.generateUserKeys(client); err != nil && tt.wantError == "" {
+			if err = tt.ac.generateUserKeys(context.Background(), client); err != nil && tt.wantError == "" {
 				t.Fatalf("generating KubeProxyConfig: %v", err)
 			}
 
@@ -248,7 +248,7 @@ func (c *mockClient) GenerateUserCerts(ctx context.Context, userCertsReq proto.U
 	c.userCertsReq = &userCertsReq
 	return c.userCerts, nil
 }
-func (c *mockClient) GetCertAuthorities(types.CertAuthType, bool, ...services.MarshalOption) ([]types.CertAuthority, error) {
+func (c *mockClient) GetCertAuthorities(context.Context, types.CertAuthType, bool, ...services.MarshalOption) ([]types.CertAuthority, error) {
 	return c.cas, nil
 }
 func (c *mockClient) GetProxies() ([]types.Server, error) {
@@ -362,7 +362,7 @@ func TestCheckKubeCluster(t *testing.T) {
 				leafCluster:  tt.leafCluster,
 				outputFormat: tt.outputFormat,
 			}
-			err := a.checkKubeCluster(client)
+			err := a.checkKubeCluster(context.Background(), client)
 			tt.assertErr(t, err)
 			require.Equal(t, tt.want, a.kubeCluster)
 		})
@@ -499,7 +499,7 @@ func TestGenerateDatabaseKeys(t *testing.T) {
 				genTTL:        time.Hour,
 			}
 
-			err = ac.generateDatabaseKeysForKey(authClient, key)
+			err = ac.generateDatabaseKeysForKey(context.Background(), authClient, key)
 			if test.genKeyErrMsg == "" {
 				require.NoError(t, err)
 			} else {
@@ -612,7 +612,7 @@ func TestGenerateAppCertificates(t *testing.T) {
 				genTTL:        time.Hour,
 				appName:       tc.appName,
 			}
-			err = ac.generateUserKeys(authClient)
+			err = ac.generateUserKeys(context.Background(), authClient)
 			tc.assertErr(t, err)
 			if err != nil {
 				return
