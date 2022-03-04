@@ -22,7 +22,9 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/gravitational/teleport"
@@ -68,6 +70,8 @@ func Run(args []string) error {
 	app.Flag("debug", "Verbose logging to stdout").Short('d').BoolVar(&cf.Debug)
 	app.Flag("config", "tbot.yaml path").Short('c').StringVar(&cf.ConfigPath)
 
+	versionCmd := app.Command("version", "Print the version")
+
 	startCmd := app.Command("start", "Starts the renewal bot, writing certificates to the data dir at a set interval.")
 	startCmd.Flag("auth-server", "Specify the Teleport auth server host").Short('a').Envar(authServerEnvVar).StringVar(&cf.AuthServer)
 	startCmd.Flag("token", "A bot join token, if attempting to onboard a new bot; used on first connect.").Envar(tokenEnvVar).StringVar(&cf.Token)
@@ -75,11 +79,11 @@ func Run(args []string) error {
 	startCmd.Flag("data-dir", "Directory to store internal bot data.").StringVar(&cf.DataDir)
 	startCmd.Flag("destination-dir", "Directory to write generated certificates").StringVar(&cf.DestinationDir)
 	startCmd.Flag("certificate-ttl", "TTL of generated certificates").Default("60m").DurationVar(&cf.CertificateTTL)
-	startCmd.Flag("renew-interval", "Interval at which certificates are renewed; must be less than the certificate TTL.").DurationVar(&cf.RenewInterval)
+	startCmd.Flag("renewal-interval", "Interval at which certificates are renewed; must be less than the certificate TTL.").DurationVar(&cf.RenewalInterval)
 	startCmd.Flag("join-method", "Method to use to join the cluster.").Default(config.DefaultJoinMethod).EnumVar(&cf.JoinMethod, "token", "iam")
+	startCmd.Flag("oneshot", "If set, quit after the first renewal.").BoolVar(&cf.Oneshot)
 
 	initCmd := app.Command("init", "Initialize a certificate destination directory for writes from a separate bot user.")
-	initCmd.Flag("auth-server", "Specify the Teleport auth server host").Short('a').Envar(authServerEnvVar).StringVar(&cf.AuthServer)
 	initCmd.Flag("destination-dir", "If NOT using a config file, specify the destination directory.").StringVar(&cf.DestinationDir)
 	initCmd.Flag("init-dir", "If using a config file and multiple destinations are configured, specify which to initialize").StringVar(&cf.InitDir)
 	initCmd.Flag("clean", "If set, remove unexpected files and directories from the destination").BoolVar(&cf.Clean)
@@ -105,6 +109,8 @@ func Run(args []string) error {
 	}
 
 	switch command {
+	case versionCmd.FullCommand():
+		err = onVersion()
 	case startCmd.FullCommand():
 		err = onStart(botConfig)
 	case configCmd.FullCommand():
@@ -121,6 +127,11 @@ func Run(args []string) error {
 	return err
 }
 
+func onVersion() error {
+	utils.PrintVersion()
+	return nil
+}
+
 func onConfig(botConfig *config.BotConfig) error {
 	pretty.Println(botConfig)
 
@@ -132,6 +143,10 @@ func onWatch(botConfig *config.BotConfig) error {
 }
 
 func onStart(botConfig *config.BotConfig) error {
+	if botConfig.AuthServer == "" {
+		return trace.BadParameter("An auth server must be set via --auth-server or configuration")
+	}
+
 	// First, try to make sure all destinations are usable.
 	if err := checkDestinations(botConfig); err != nil {
 		return trace.Wrap(err)
@@ -146,8 +161,11 @@ func onStart(botConfig *config.BotConfig) error {
 	var authClient auth.ClientI
 
 	// TODO: graceful shutdown via signal; see #7066
+	reloadChan := make(chan struct{})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	go handleSignals(reloadChan, cancel)
 
 	configTokenHashBytes := []byte{}
 	if botConfig.Onboarding != nil && botConfig.Onboarding.Token != "" {
@@ -235,7 +253,7 @@ func onStart(botConfig *config.BotConfig) error {
 
 	defer watcher.Close()
 
-	return renewLoop(ctx, botConfig, authClient, ident)
+	return renewLoop(ctx, botConfig, authClient, ident, reloadChan)
 }
 
 func hasTokenChanged(configTokenBytes, identityBytes []byte) bool {
@@ -311,6 +329,24 @@ func checkIdentity(ident *identity.Identity) error {
 	}
 
 	return nil
+}
+
+// handleSignals handles incoming Unix signals
+func handleSignals(reload chan struct{}, cancel context.CancelFunc) {
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, syscall.SIGINT, syscall.SIGHUP, syscall.SIGUSR1)
+
+	for signal := range signals {
+		switch signal {
+		case syscall.SIGINT:
+			log.Info("Received interrupt, cancelling...")
+			cancel()
+			return
+		case syscall.SIGHUP, syscall.SIGUSR1:
+			log.Info("Received reload signal, reloading...")
+			reload <- struct{}{}
+		}
+	}
 }
 
 func watchCARotations(watcher types.Watcher) {
@@ -507,7 +543,7 @@ func describeSSHIdentity(ident *identity.Identity) (string, error) {
 	), nil
 }
 
-func renewLoop(ctx context.Context, cfg *config.BotConfig, client auth.ClientI, ident *identity.Identity) error {
+func renewLoop(ctx context.Context, cfg *config.BotConfig, client auth.ClientI, ident *identity.Identity, reloadChan chan struct{}) error {
 	// TODO: failures here should probably not just end the renewal loop, there
 	// should be some retry / back-off logic.
 
@@ -515,12 +551,12 @@ func renewLoop(ctx context.Context, cfg *config.BotConfig, client auth.ClientI, 
 	// Also, must be < the validity period.
 	// TODO: validate that cert is actually renewable.
 
-	log.Infof("Beginning renewal loop: ttl=%s interval=%s", cfg.CertificateTTL, cfg.RenewInterval)
-	if cfg.RenewInterval > cfg.CertificateTTL {
+	log.Infof("Beginning renewal loop: ttl=%s interval=%s", cfg.CertificateTTL, cfg.RenewalInterval)
+	if cfg.RenewalInterval > cfg.CertificateTTL {
 		log.Errorf(
 			"Certificate TTL (%s) is shorter than the renewal interval (%s). The next renewal is likely to fail.",
 			cfg.CertificateTTL,
-			cfg.RenewInterval,
+			cfg.RenewalInterval,
 		)
 	}
 
@@ -531,7 +567,7 @@ func renewLoop(ctx context.Context, cfg *config.BotConfig, client auth.ClientI, 
 		return trace.Wrap(err)
 	}
 
-	ticker := time.NewTicker(cfg.RenewInterval)
+	ticker := time.NewTicker(cfg.RenewalInterval)
 	defer ticker.Stop()
 	for {
 		// Make sure we can still write to the bot's destination.
@@ -654,16 +690,24 @@ func renewLoop(ctx context.Context, cfg *config.BotConfig, client auth.ClientI, 
 			}
 		}
 
-		log.Infof("Persisted new certificates to disk. Next renewal in approximately %s", cfg.RenewInterval)
+		if cfg.Oneshot {
+			log.Info("Oneshot mode enabled, exiting successfully.")
+			break
+		}
+
+		log.Infof("Persisted new certificates to disk. Next renewal in approximately %s", cfg.RenewalInterval)
 
 		select {
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
 			continue
+		case <-reloadChan:
+			continue
 		}
-
 	}
+
+	return nil
 }
 
 // authenticatedUserClientFromIdentity creates a new auth client from the given
