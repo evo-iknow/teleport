@@ -150,7 +150,6 @@ the data directory by running the following command {{ bold "as the user who wil
 {{ bold "using the certificates" }}:
 
 > tbot init \
-   --auth-server={{.auth_server}} \
    --destination-dir=./tbot-user \
    --bot-user=tbot
 
