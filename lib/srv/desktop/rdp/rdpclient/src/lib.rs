@@ -36,7 +36,6 @@ use rdp::core::tpkt;
 use rdp::core::x224;
 use rdp::model::error::{Error as RdpError, RdpError as RdpProtocolError, RdpErrorKind, RdpResult};
 use rdp::model::link::{Link, Stream};
-use std::convert::TryFrom;
 use std::ffi::{CStr, CString};
 use std::io::Error as IoError;
 use std::io::ErrorKind;
@@ -321,48 +320,6 @@ pub struct CGOBitmap {
     pub data_cap: usize,
 }
 
-impl TryFrom<BitmapEvent> for CGOBitmap {
-    type Error = RdpError;
-
-    fn try_from(e: BitmapEvent) -> Result<Self, Self::Error> {
-        let mut res = CGOBitmap {
-            dest_left: e.dest_left,
-            dest_top: e.dest_top,
-            dest_right: e.dest_right,
-            dest_bottom: e.dest_bottom,
-            data_ptr: ptr::null_mut(),
-            data_len: 0,
-            data_cap: 0,
-        };
-
-        // e.decompress consumes e, so we need to call it separately, after populating the fields
-        // above.
-        let mut data = if e.is_compress {
-            e.decompress()?
-        } else {
-            e.data
-        };
-        res.data_ptr = data.as_mut_ptr();
-        res.data_len = data.len();
-        res.data_cap = data.capacity();
-
-        // Prevent the data field from being freed while Go handles it.
-        // It will be dropped once CGOBitmap is dropped (see below).
-        mem::forget(data);
-
-        Ok(res)
-    }
-}
-
-impl Drop for CGOBitmap {
-    fn drop(&mut self) {
-        // Reconstruct into Vec to drop the allocated buffer.
-        unsafe {
-            Vec::from_raw_parts(self.data_ptr, self.data_len, self.data_cap);
-        }
-    }
-}
-
 #[cfg(unix)]
 fn wait_for_fd(fd: usize) -> bool {
     unsafe {
@@ -458,18 +415,32 @@ fn read_rdp_output_inner(client: &Client) -> Option<String> {
             .unwrap()
             .read(|rdp_event| match rdp_event {
                 RdpEvent::Bitmap(bitmap) => {
-                    let cbitmap = match CGOBitmap::try_from(bitmap) {
-                        Ok(cb) => cb,
-                        Err(e) => {
-                            error!(
-                                "failed to convert RDP bitmap to CGO representation: {:?}",
-                                e
-                            );
-                            return;
-                        }
+                    let mut cb = CGOBitmap {
+                        dest_left: bitmap.dest_left,
+                        dest_top: bitmap.dest_top,
+                        dest_right: bitmap.dest_right,
+                        dest_bottom: bitmap.dest_bottom,
+                        data_ptr: ptr::null_mut(),
+                        data_len: 0,
+                        data_cap: 0,
                     };
+                    let mut data = if bitmap.is_compress {
+                        match bitmap.decompress() {
+                            Ok(data) => data,
+                            Err(e) => {
+                                error!("failed to decompress bitmap: {:?}", e);
+                                return;
+                            }
+                        }
+                    } else {
+                        bitmap.data
+                    };
+                    cb.data_ptr = data.as_mut_ptr();
+                    cb.data_len = data.len();
+                    cb.data_cap = data.capacity();
+
                     unsafe {
-                        err = handle_bitmap(client_ref, cbitmap) as CGOError;
+                        err = handle_bitmap(client_ref, cb) as CGOError;
                     };
                 }
                 // These should never really be sent by the server to us.
