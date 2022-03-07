@@ -386,6 +386,8 @@ func TestGetAdditionalPrincipals(t *testing.T) {
 			role: types.RoleKube,
 			wantPrincipals: []string{
 				"global-hostname",
+				"*.teleport.cluster.local",
+				"teleport.cluster.local",
 				string(teleport.PrincipalLocalhost),
 				string(teleport.PrincipalLoopbackV4),
 				string(teleport.PrincipalLoopbackV6),
@@ -400,6 +402,8 @@ func TestGetAdditionalPrincipals(t *testing.T) {
 			wantPrincipals: []string{
 				"global-hostname",
 				"global-uuid",
+				"*.teleport.cluster.local",
+				"teleport.cluster.local",
 			},
 			wantDNS: []string{},
 		},
