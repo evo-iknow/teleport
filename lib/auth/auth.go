@@ -2155,7 +2155,7 @@ func (a *Server) GenerateHostCerts(ctx context.Context, req *proto.HostCertsRequ
 
 	// DefaultParticipantForRole requests need to specify a DNS name, which must be present in the certificate's DNS Names.
 	// The target DNS is not always known in advance so we add a default one to all certificates.
-	certRequest.DNSNames = append(certRequest.DNSNames, DefaultParticipantForRole(req.Role)...)
+	certRequest.DNSNames = append(certRequest.DNSNames, DefaultPrincipalsForRole(req.Role)...)
 
 	// API requests need to specify a DNS name, which must be present in the certificate's DNS Names.
 	// The target DNS is not always known in advance so we add a default one to all certificates.
@@ -3770,8 +3770,8 @@ func WithClusterCAs(tlsConfig *tls.Config, ap AccessCache, currentClusterName st
 	}
 }
 
-// DefaultParticipantForRole returns default participants for the specified role.
-func DefaultParticipantForRole(role types.SystemRole) []string {
+// DefaultPrincipalsForRole returns default participants for the specified role.
+func DefaultPrincipalsForRole(role types.SystemRole) []string {
 	if (types.SystemRoles{role}).IncludeAny(types.RoleAuth, types.RoleAdmin, types.RoleProxy, types.RoleKube, types.RoleApp) {
 		return []string{
 			"*." + constants.APIDomain,
