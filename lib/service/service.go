@@ -3841,6 +3841,12 @@ func (process *TeleportProcess) StartShutdown(ctx context.Context) context.Conte
 			}
 		}
 
+		if process.storage != nil {
+			if err := process.storage.Close(); err != nil {
+				process.log.Warningf("Failed closing process storage: %v.", err)
+			}
+		}
+
 		if process.cacheDir != "" {
 			if err := os.RemoveAll(process.cacheDir); err != nil {
 				process.log.Warningf("Failed deleting cache directory: %v.", err)
